@@ -6,3 +6,7 @@ xgboost>=2.0.0
 pyarrow>=14.0.0
 plotly>=5.18.0
 jupyter>=1.0.0
+feedparser
+beautifulsoup4
+google-generativeai
+python-dotenv

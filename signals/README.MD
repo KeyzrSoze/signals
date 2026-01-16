@@ -55,3 +55,13 @@
 - [x] **Automated Risk Reporting**
     - Action: Script `generate_watchlist.py` generates a CSV report.
     - Output: "Monday Morning" watchlist ranking drugs by `risk_score` (probability of spike), enriched with human-readable descriptions, monopoly indices, and momentum indicators.
+
+## Phase 7: The Sentinel (Unstructured Intelligence)
+**Objective:** Predict supply chain failures *before* they hit the structured data.
+- [x] **Unstructured Data Ingestion**
+    - Action: Built `sentinel_ingest.py` to listen to FDA Enforcement Reports (RSS) and trade news feeds.
+    - Logic: Targets "Lagging Indicators" (Price) vs "Leading Indicators" (Factory Inspections).
+- [x] **LLM "Signal Transducer"**
+    - Implementation: Integrated **Gemini Flash** model via API.
+    - Logic: Applied an "LLM Judge" pattern to classify raw text into structured risk events (e.g., "Form 483 Issued", "Voluntary Recall", "Factory Shutdown").
+    - Output: Normalized `severity_score` (0-10) mapped to specific Manufacturers.
