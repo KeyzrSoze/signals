@@ -1,0 +1,14 @@
+# Ignore Data (Too large, potential privacy issues)
+data/
+*.csv
+*.parquet
+*.zip
+
+# Ignore Environment
+venv/
+__pycache__/
+.DS_Store
+.env
+
+# Ignore IDE settings
+.vscode/
