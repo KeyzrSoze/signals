@@ -1,7 +1,6 @@
 import polars as pl
 import os
 import glob
-from datetime import datetime
 
 # ==========================================
 # CONFIGURATION
@@ -10,94 +9,113 @@ RAW_DATA_PATH = "data/raw"
 PROCESSED_DATA_PATH = "data/processed"
 
 
+def normalize_and_load(file_path):
+    """
+    Reads a CSV, forces all headers to lowercase, applies standard naming,
+    and returns a clean LazyFrame.
+    """
+    # 1. Read (Lazy)
+    lf = pl.scan_csv(file_path, infer_schema_length=0)
+
+    # 2. Force Lowercase Headers immediately
+    # This solves the "NDC" vs "ndc" issue forever.
+    # Proper way to get names in newer Polars
+    current_columns = lf.collect_schema().names()
+    lower_map = {col: col.lower() for col in current_columns}
+    lf = lf.rename(lower_map)
+
+    # 3. Define our "Rosetta Stone" (All keys must be lowercase now)
+    rename_map = {
+        # Price
+        "nadac per unit": "price_per_unit",
+        "nadac_per_unit": "price_per_unit",
+
+        # Date
+        "effective date": "effective_date",
+        "effective_date": "effective_date",
+
+        # NDC
+        "ndc": "ndc11",
+
+        # Description
+        "ndc description": "drug_description",
+        "ndc_description": "drug_description",
+
+        # Classification
+        "classification for rate setting": "classification",
+        "classification_for_rate_setting": "classification"
+    }
+
+    # 4. Apply Renaming
+    # We re-fetch columns because we just renamed them to lowercase
+    current_columns_lower = [c.lower() for c in current_columns]
+    actual_renames = {k: v for k,
+                      v in rename_map.items() if k in current_columns_lower}
+    lf = lf.rename(actual_renames)
+
+    # 5. Standardize Data Types
+    lf = lf.select([
+        pl.col("effective_date").str.strptime(
+            pl.Date, "%m/%d/%Y", strict=False),
+
+        pl.col("ndc11")
+          .str.replace_all("-", "")
+          .str.zfill(11),
+
+        pl.col("price_per_unit").cast(pl.Float64),
+
+        pl.col("drug_description"),
+        pl.col("classification")
+    ])
+
+    return lf
+
+
 def fetch_and_process_nadac():
-    """
-    1. Scans data/raw/ for any NADAC csv files.
-    2. Enforces strict types (NDC as String).
-    3. Stitches multiple files together (e.g. 2024 + 2025 + 2026).
-    4. Saves as optimized Parquet.
-    """
-    print("🚀 Starting NADAC Ingestion (Local File Mode)...")
+    print("🚀 Starting NADAC Ingestion (Case-Insensitive Mode)...")
 
-    # 1. Find all NADAC files in the raw folder
-    # We look for any csv file. You can be more specific if needed.
     csv_files = glob.glob(os.path.join(RAW_DATA_PATH, "*.csv"))
-
     if not csv_files:
-        print(f"   ❌ No CSV files found in {RAW_DATA_PATH}!")
-        print("      -> Please download the NADAC CSV from Medicaid.gov")
-        print("      -> Place it in 'data/raw/' and run this again.")
+        print("   ❌ No CSV files found!")
         return
 
-    print(
-        f"   📂 Found {len(csv_files)} file(s): {[os.path.basename(f) for f in csv_files]}")
+    print(f"   📂 Processing {len(csv_files)} files...")
 
-    # 2. Lazy Load & Schema Enforcement
-    # scanning multiple files at once is a superpower of Polars
-    try:
-        nadac_df = pl.scan_csv(
-            os.path.join(RAW_DATA_PATH, "*.csv"),  # Use wildcard to load all
-            schema_overrides={
-                "NDC": pl.String,                # CRITICAL: Keep leading zeros
-                "NADAC_Per_Unit": pl.Float64,
-                "Effective_Date": pl.String,     # Read as string first
-                "Classification_for_Rate_Setting": pl.String
-            },
-            ignore_errors=True  # Skip malformed rows if any
-        )
-    except Exception as e:
-        print(f"   ❌ Error reading CSVs: {e}")
+    lazy_frames = []
+    for f in csv_files:
+        try:
+            lf = normalize_and_load(f)
+            lazy_frames.append(lf)
+        except Exception as e:
+            print(f"      ⚠️ Skipping {os.path.basename(f)}: {e}")
+
+    if not lazy_frames:
         return
 
-    # 3. Processing Pipeline
-    print("   🧹 Cleaning, merging, and formatting...")
+    print("   🔗 Merging history...")
+    combined_lf = pl.concat(lazy_frames)
 
-    processed_df = (
-        nadac_df
-        .select([
-            # Normalize Date
-            pl.col("Effective_Date")
-              .str.strptime(pl.Date, "%m/%d/%Y", strict=False)
-              .alias("effective_date"),
-
-            # Normalize NDC (Ensure 11 digits)
-            pl.col("NDC")
-              .str.replace_all("-", "")
-              .str.zfill(11)
-              .alias("ndc11"),
-
-            # Rename columns
-            pl.col("NADAC_Per_Unit").alias("price_per_unit"),
-            pl.col("NDC_Description").alias("drug_description"),
-            pl.col("Classification_for_Rate_Setting").alias("classification")
-        ])
-        .filter(
-            # Filter out bad data
-            (pl.col("price_per_unit") > 0) &
-            (pl.col("effective_date").is_not_null())
-        )
-        # Deduplicate if files overlap
+    # Final Polish
+    final_df = (
+        combined_lf
+        .filter(pl.col("price_per_unit").is_not_null())
         .unique(subset=["effective_date", "ndc11"])
         .sort(["effective_date", "ndc11"])
-        .collect()  # Execute
+        .collect()
     )
 
-    # 4. Validation
-    row_count = processed_df.height
-    unique_ndcs = processed_df["ndc11"].n_unique()
-    min_date = processed_df["effective_date"].min()
-    max_date = processed_df["effective_date"].max()
+    # Validation
+    row_count = final_df.height
+    min_date = final_df["effective_date"].min()
+    max_date = final_df["effective_date"].max()
 
-    print(f"   ✅ Data Loaded: {row_count:,} rows")
-    print(f"   ✅ Date Range: {min_date} to {max_date}")
-    print(f"   ✅ Unique NDCs: {unique_ndcs:,}")
+    print(f"   ✅ SUCCESS! History Range: {min_date} to {max_date}")
+    print(f"   ✅ Total Rows: {row_count:,}")
 
-    # 5. Save Artifact
     os.makedirs(PROCESSED_DATA_PATH, exist_ok=True)
     output_path = os.path.join(PROCESSED_DATA_PATH, "nadac_history.parquet")
-
-    processed_df.write_parquet(output_path)
-    print(f"   💾 Saved optimized file to: {output_path}")
+    final_df.write_parquet(output_path)
+    print(f"   💾 Saved to: {output_path}")
 
 
 if __name__ == "__main__":
