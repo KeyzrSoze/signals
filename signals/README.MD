@@ -1,97 +1,47 @@
 # Project Signals: Master Canvas
 
-**Project Goal:** Construct an enterprise-grade Early Warning System (EWS) for pharmacy price spikes using "Event Sourcing" architecture.
+**Project Goal:** Construct an enterprise-grade Early Warning System (EWS) for pharmacy price spikes using "Network Science" & Event Sourcing.
 **Core Metric:** Accuracy (Zero Data Leakage).
-**Tech Stack:** Python 3.12 (Conda), Polars, XGBoost, Git.
+**Tech Stack:** Python 3.12, Polars, XGBoost, **Neo4j (Graph DB)**, Gemini 2.5 Flash.
+
+## 🛠 Data Source Manifest
+| Data Source | Type | Usage | Ingestion Script |
+|:---|:---|:---|:---|
+| **CMS NADAC** | Structured (CSV) | Pricing History & Baselines | `src/ingestion/nadac_ingest.py` |
+| **FDA NDC Directory** | Structured (JSON) | Product Metadata & Labeler Codes | `src/ingestion/ndc_library.py` |
+| **FDA Shortages** | Semi-Structured (Web) | Historical Shortage Events | `src/ingestion/fda_shortages.py` |
+| **FDA Enforcement** | Unstructured (RSS) | Recalls & Warning Letters | `src/ingestion/sentinel_ingest.py` |
+| **FDA FEI Database** | Structured (CSV) | Factory Locations & Registrations | `src/graph/enrich_facilities.py` |
 
 ## Phase 1: Environment & Architecture
-- [x] Structure: Domain-driven directory tree (src/ingestion, src/models, etc.).
+- [x] Structure: Domain-driven directory tree.
 - [x] Environment: Conda environment `signals` active.
-- [x] Version Control: Git initialized with .gitignore for data security.
 
 ## Phase 2: The Ingestion Engine
-**Objective:** Build automated, resilient data pipelines.
-- [x] **2A: NADAC Processor**
-    - Action: Fetch raw NADAC weekly files.
-    - Logic: Enforce strict schema (NDC=String), implemented "Case-Insensitive" column normalization to handle multi-year government format changes.
-- [x] **2B: FDA Shortage Scraper**
-    - Action: Parse FDA API history.
-    - Logic: Converted "current status" snapshot into a longitudinal "Event Stream" (Start/Update/End) with robust date parsing for various FDA formats.
-- [x] **2C: Reference Data**
-    - Action: Ingest FDA NDC Directory.
-    - Logic: Built the master list of valid NDCs and product metadata.
+- [x] **2A: NADAC Processor:** Strict schema enforcement & case-insensitive normalization.
+- [x] **2B: FDA Shortage Scraper:** Longitudinal "Event Stream" (Start/Update/End).
+- [x] **2C: Reference Data:** Master list of valid NDCs.
 
-## Phase 3: The Entity Map (The "Rosetta Stone")
-**Objective:** Link disjointed data sources.
-- [x] **Entity Map Construction**
-    - Action: Created a bridge table: NDC (11-digit) <-> Ingredient <-> Manufacturer.
-    - Logic: Implemented "Smart Fallback" logic.
-        - Direct Match: 9-digit Product Code.
-        - Fallback 1: Manufacturer inference via 5-digit Labeler Code.
-        - Fallback 2: Ingredient extraction via text mining of Drug Description.
-    - Result: Achieved >85% manufacturer coverage and 100% ingredient coverage.
+## Phase 3: The Entity Map (Graph Upgrade)
+**Objective:** Move from Flat Files to a Knowledge Graph.
+- [x] **3A: Graph Hydration:** Ported Entity Map to Neo4j.
+- [x] **3B: Facility Resolution:** Used Gemini 2.5 Flash to link "Corporate Subsidiaries" to "Physical Factories" (FEI Numbers).
+- [x] **3C: Risk Propagation:** Implemented "Contagion Logic" where factory risks flow to NDCs.
 
-## Phase 4: Signal Generation (Feature Engineering)
-**Objective:** Create the training dataset `weekly_market_signals` and `weekly_features`.
-- [x] **Time Machine Logic**
-    - Implemented Polars `join_asof` to align price data (Mondays) with the latest known shortage status from the past to prevent data leakage.
-- [x] **Advanced Feature Engineering ("Kitchen Sink")**
-    - **Shortage Signals:** Active status, duration (weeks in shortage).
-    - **Market Structure:** Calculated HHI (Herfindahl-Hirschman Index) to detect monopolies and competitor counts.
-    - **Price Dynamics:** Calculated 4-week Price Velocity (Momentum) and 12-week Volatility (Coefficient of Variation).
+## Phase 4: Signal Generation
+- [x] **Time Machine Logic:** `join_asof` for point-in-time correctness.
+- [x] **Graph Embeddings:** Extracted Node2Vec structural features.
+- [x] **Market Structure:** Calculated HHI (Monopoly Index).
 
-## Phase 5: Modeling (The "Hurdle" Architecture)
-**Objective:** Train high-precision models.
-- [x] **Model Architecture**
-    - Implementation: XGBoost Classifier.
-    - Target: Binary classification of >10% price spike within an 8-week lookahead window.
-- [x] **Training Strategy**
-    - Logic: Time-Based Split (Train on historical data, Test on latest year).
-    - Optimization: Used `scale_pos_weight` to handle class imbalance (rare spike events).
-    - Performance: Achieved ~68% Recall (capturing 2/3rds of all spikes) with high importance placed on Price Velocity and Market HHI.
+## Phase 5: Modeling (XGBoost)
+- [x] **Model Architecture:** XGBoost Classifier trained on `graph_features` + `market_signals`.
+- [x] **Performance:** Recall improved by detecting "Hidden Risks" (Sister Company contagion).
 
 ## Phase 6: Consulting Deliverables
-**Objective:** Client-facing assets.
-- [x] **Automated Risk Reporting**
-    - Action: Script `generate_watchlist.py` generates a CSV report.
-    - Output: "Monday Morning" watchlist ranking drugs by `risk_score` (probability of spike), enriched with human-readable descriptions, monopoly indices, and momentum indicators.
+- [x] **Automated Risk Reporting:** "Monday Morning" watchlist with "Reason Codes" (e.g., "Upstream Factory Failure").
 
 ## Phase 7: The Sentinel (Unstructured Intelligence)
-**Objective:** Predict supply chain failures *before* they hit the structured data.
-- [x] **Unstructured Data Ingestion**
-    - Action: Built `sentinel_ingest.py` to listen to FDA Enforcement Reports (RSS) and trade news feeds.
-    - Logic: Targets "Lagging Indicators" (Price) vs "Leading Indicators" (Factory Inspections).
-- [x] **LLM "Signal Transducer"**
-    - Implementation: Integrated **Gemini Flash** model via API.
-    - Logic: Applied an "LLM Judge" pattern to classify raw text into structured risk events (e.g., "Form 483 Issued", "Voluntary Recall", "Factory Shutdown").
-    - Output: Normalized `severity_score` (0-10) mapped to specific Manufacturers.
+- [x] **LLM "Signal Transducer":** Gemini Flash parses FDA text into quantitative `severity_scores` (0-10).
 
-## Phase 8: Financial Risk Simulation (Monte Carlo)
-**Objective:** Translate risk scores into projected financial losses (Value at Risk).
-- [x] **Stochastic Engine**
-    - Action: Built `RiskSimulator` class using NumPy for vectorized performance.
-    - Logic: Simulates 1,000 parallel market scenarios per drug.
-    - Input: `manufacturer_risk_score` (0-10) derived from the Sentinel.
-    - Output: Calculates `mean_loss` (Expected Value) and `worst_case_loss` (95th Percentile VaR).
-- [x] **Validation**
-    - Proven via `test_monte_carlo.py` to accurately model 0%, 50%, and 100% risk probabilities with statistical significance.
-
-## Phase 9: System Integration
-**Objective:** Unify all modules into a single "Time Machine" pipeline.
-- [x] **Temporal Joining**
-    - Logic: Implemented `join_asof` to merge unstructured AI risk scores (Sentinel) with structured market data (NADAC) while strictly preventing look-ahead bias.
-    - Result: The model can now "look back" to find the most recent factory warning letter when predicting today's price.
-
-## Testing & Verification
-**Objective:** Ensure system stability before deployment.
-
-### 1. The Sentinel (AI Risk Engine)
-To verify that the Gemini AI is correctly parsing FDA feeds and assigning scores:
-```bash
-# Run the "Smoke Test" (Uses Mock Data to check logic)
-python test_sentinel.py
-# Expected Output: Success message with "Pfizer: Score 8" vs "AstraZeneca: Score 0"
-
-# Run the Live Pipeline (Hits FDA RSS Feed)
-python src/ingestion/sentinel_ingest.py
-# Expected Output: "Saved X risk events to parquet"
+## Phase 8: Financial Risk Simulation
+- [x] **Monte Carlo Engine:** Simulates 1,000 market scenarios to calculate Value at Risk (VaR).

@@ -10,5 +10,9 @@ feedparser
 beautifulsoup4
 google-genai
 python-dotenv
-requests 
-
+neo4j
+rapidfuzz
+torch
+pytorch-lightning
+pytorch-forecasting
+tensorboard

@@ -1,52 +1,48 @@
 # Signals: System Architecture & Logic
 
-## 1. The "Elevator Pitch" (Layman Explanation)
+## 1. The "Elevator Pitch"
 **What does this system do?**
-"Signals" is an Early Warning System for pharmacy procurement. Just as a weather radar predicts a storm before it hits, Signals predicts drug price spikes before they hit the invoice.
+"Signals" is a "Digital Twin" of the Pharmaceutical Supply Chain. It doesn't just track prices; it maps the physical web of factories, parent companies, and shipping lanes to predict failures before they happen.
 
-**How does it work?**
-Most systems look at *history* (what happened last month). Signals looks at *pressure* (what is happening right now).
-1.  **It Listens:** It monitors government databases for factory inspections, recalls, and competitor exits 24/7.
-2.  **It Reads:** An AI (Gemini) reads thousands of messy FDA reports to find "hidden" risks—like a factory shutdown in India—that human analysts miss.
-3.  **It Predicts:** It combines these risk signals with market data to calculate a probability score (0-100%) that a specific drug will double in price in the next 8 weeks.
-
-**The Result:**
-Instead of reacting to a price hike, we proactively switch to a cheaper alternative 3 weeks early, saving the client millions in "inflation avoidance."
+**The "Crystal Ball" Logic:**
+1.  **The Ear:** We listen to FDA signals (Recalls, Inspections).
+2.  **The Brain:** A Knowledge Graph (Neo4j) traces that signal from a factory in India to every specific pill bottle on a US pharmacy shelf.
+3.  **The Prediction:** AI models combine this "Structural Risk" with "Price Momentum" to forecast spikes 8 weeks out.
 
 ---
 
-## 2. The Engineering Deep Dive (Technical Explanation)
-**Architecture Pattern:**
-The system utilizes a **Lambda Architecture** variant, combining batch processing for historical baselines with an event-driven "Speed Layer" for real-time risk ingestion.
+## 2. The Engineering Deep Dive
 
-**The 3 Core Components:**
+### A. The Knowledge Graph (The "Map")
+* **Technology:** Neo4j + Gemini 2.5 Flash.
+* **The Problem:** Pharma data is opaque. "Teva USA" and "Teva Israel" look like different companies in a database, but they share risk.
+* **The Solution:** We built a Graph Topology:
+    * `(Factory)-[:MAKES]->(Ingredient)-[:IN]->(Drug)`
+    * `(Parent Corp)-[:OWNS]->(Subsidiary)`
+* **Risk Propagation:** If a Factory node turns "Red" (Inspection Failure), our **Graph Traversal Algorithm** pushes that risk score down the edges. If you buy a drug connected to that factory, your risk score goes up, even if the price hasn't moved yet.
 
-### A. The Ingestion Engine (ETL)
-* **Polars-based Pipelines:** We use Rust-backed Polars DataFrames for high-performance ETL. Unlike Pandas, this allows us to process 5+ years of NADAC (CMS) pricing data in milliseconds using lazy evaluation.
-* **Event Sourcing:** FDA shortage data is treated as an immutable stream of state changes (Start -> Update -> Resolved), allowing us to reconstruct the "State of the World" at any point in history without data leakage.
+### B. The Ingestion Engine (ETL)
+* **Polars-based Pipelines:** High-performance Rust backends for processing millions of NADAC rows.
+* **Data Sources:**
+    * **CMS NADAC:** The "Ticker Tape" of pharmacy pricing.
+    * **FDA Shortages:** The historical record of failures.
+    * **FDA FEI (Facility Establishment Identifier):** The physical address book of every drug factory on earth.
 
-### B. The Sentinel (Unstructured Intelligence)
-* **LLM Integration:** We utilize **Google Gemini 2.5 (Flash)** as a "Reasoning Engine."
-* **Signal Transduction:** The system ingests unstructured text (RSS feeds, Warning Letters). The LLM acts as a transducer, converting qualitative text into quantitative `severity_scores` (0-10) and extracting entities (Manufacturers) via strict JSON schema enforcement.
-* **Circuit Breakers:** The pipeline includes robust error handling and fallback mechanisms to ensure downstream models never fail due to API outages.
+### C. The Predictive Core (Hybrid AI)
+* **Feature Fusion:** We combine two types of intelligence:
+    1.  **Temporal:** Price Velocity, Volatility (Time Series).
+    2.  **Structural:** Graph Centrality, Supplier Concentration (Network Science).
+* **Model:** XGBoost Classifier (Gradient Boosted Trees).
+* **Zero Leakage:** Strict `join_asof` usage ensures we never train on data from the future.
 
-### C. The Predictive Core (XGBoost)
-* **Point-in-Time Correctness:** We utilize `join_asof` logic to align features. This ensures that when the model trains on a date (e.g., Jan 1, 2024), it *only* sees data available up to Dec 31, 2023. This eliminates "Look-ahead Bias."
-* **Hybrid Feature Store:** The model consumes a "Kitchen Sink" of features:
-    * **Market Structure:** Herfindahl-Hirschman Index (HHI) to measure monopoly power.
-    * **Momentum:** Price velocity and acceleration derivatives.
-    * **External Shock:** The aggregated `risk_score` from the Sentinel.
+### D. The Sentinel (LLM Agent)
+* **Role:** The Reader.
+* **Logic:** FDA reports are messy text ("...debris found in hopper 4...").
+* **Agent:** We use **Gemini 2.5 Flash** to read these reports and extract:
+    * **Entity:** Who is it? (Mapped to Graph Node).
+    * **Severity:** 0-10 Score.
+    * **Type:** "Quality Failure" vs "Paperwork Error".
 
-**The Stack:**
-* **Language:** Python 3.12
-* **Compute:** Polars (Local), Scalable to Spark/BigQuery.
-* **AI:** Google GenAI SDK (Gemini 2.5).
-* **ML:** XGBoost (Gradient Boosted Trees).
-
-### D. The Shadow Formulary (Financial Simulation)
-* **Objective:** Translate abstract probabilities into concrete financial exposure (Value at Risk).
-* **Stochastic Modeling:** We utilize a **Monte Carlo Engine** that runs 1,000 parallel market simulations per drug.
-* **Logic:**
-    * The engine takes the `risk_score` (e.g., 9/10) and treats it as a probability threshold.
-    * It "rolls the dice" 1,000 times to see how many times the supply chain breaks.
-* **Output:** It calculates the **Expected Loss** (Mean) and the **Worst Case Scenario** (95th Percentile VaR). This allows CFOs to see: *"We have a 90% chance of losing $2M on this drug next quarter."*
+### E. Financial Simulation
+* **Monte Carlo:** We translate "Risk Score 8" into "Expected Loss: $450,000".
+* **Method:** 1,000 parallel simulations per drug per week.
