@@ -65,3 +65,33 @@
     - Implementation: Integrated **Gemini Flash** model via API.
     - Logic: Applied an "LLM Judge" pattern to classify raw text into structured risk events (e.g., "Form 483 Issued", "Voluntary Recall", "Factory Shutdown").
     - Output: Normalized `severity_score` (0-10) mapped to specific Manufacturers.
+
+## Phase 8: Financial Risk Simulation (Monte Carlo)
+**Objective:** Translate risk scores into projected financial losses (Value at Risk).
+- [x] **Stochastic Engine**
+    - Action: Built `RiskSimulator` class using NumPy for vectorized performance.
+    - Logic: Simulates 1,000 parallel market scenarios per drug.
+    - Input: `manufacturer_risk_score` (0-10) derived from the Sentinel.
+    - Output: Calculates `mean_loss` (Expected Value) and `worst_case_loss` (95th Percentile VaR).
+- [x] **Validation**
+    - Proven via `test_monte_carlo.py` to accurately model 0%, 50%, and 100% risk probabilities with statistical significance.
+
+## Phase 9: System Integration
+**Objective:** Unify all modules into a single "Time Machine" pipeline.
+- [x] **Temporal Joining**
+    - Logic: Implemented `join_asof` to merge unstructured AI risk scores (Sentinel) with structured market data (NADAC) while strictly preventing look-ahead bias.
+    - Result: The model can now "look back" to find the most recent factory warning letter when predicting today's price.
+
+## Testing & Verification
+**Objective:** Ensure system stability before deployment.
+
+### 1. The Sentinel (AI Risk Engine)
+To verify that the Gemini AI is correctly parsing FDA feeds and assigning scores:
+```bash
+# Run the "Smoke Test" (Uses Mock Data to check logic)
+python test_sentinel.py
+# Expected Output: Success message with "Pfizer: Score 8" vs "AstraZeneca: Score 0"
+
+# Run the Live Pipeline (Hits FDA RSS Feed)
+python src/ingestion/sentinel_ingest.py
+# Expected Output: "Saved X risk events to parquet"

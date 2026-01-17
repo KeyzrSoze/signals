@@ -8,5 +8,7 @@ plotly>=5.18.0
 jupyter>=1.0.0
 feedparser
 beautifulsoup4
-google-generativeai
+google-genai
 python-dotenv
+requests 
+

@@ -9,6 +9,7 @@ PROCESSED_PATH = "data/processed"
 NADAC_PATH = os.path.join(PROCESSED_PATH, "nadac_history.parquet")
 EVENTS_PATH = os.path.join(PROCESSED_PATH, "shortage_events.parquet")
 MAP_PATH = os.path.join(PROCESSED_PATH, "ndc_entity_map.parquet")
+SENTINEL_RISK_PATH = os.path.join(PROCESSED_PATH, "sentinel_risks.parquet")
 OUTPUT_PATH = os.path.join(PROCESSED_PATH, "weekly_features.parquet")
 
 
@@ -151,13 +152,18 @@ def generate_features():
     # Join: Competition (on Ingredient)
     # Join: Shortages (on NDC)
 
-    # We need Ingredient on the Price table to join Competition
+    # We need Ingredient and Manufacturer on the Price table for joins
     master_table = (
         price_features
-        .join(entity_map.select(["ndc11", "ingredient"]), on="ndc11", how="left")
+        .join(entity_map.select(["ndc11", "ingredient", "manufacturer"]), on="ndc11", how="left")
         .join(competition_features, on=["effective_date", "ingredient"], how="left")
         .join(shortage_signals, on=["effective_date", "ndc11"], how="left")
     )
+    
+    # -------------------------------------------------------
+    # PHASE 5: SENTINEL RISK INTEGRATION
+    # -------------------------------------------------------
+    master_table = integrate_sentinel_risk(master_table)
 
     # Fill Nulls (e.g., if no competition data found, assume competitive)
     master_table = master_table.with_columns([
@@ -173,6 +179,59 @@ def generate_features():
     print(f"   ✅ Complete! Rows: {master_table.height:,}")
     print(f"   💾 Saving to: {OUTPUT_PATH}")
     master_table.write_parquet(OUTPUT_PATH)
+
+
+def integrate_sentinel_risk(features_df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Enriches the feature dataframe with manufacturer risk scores from Sentinel data.
+    """
+    print("   🛡️  Integrating Sentinel Manufacturer Risk...")
+
+    # 1. Load and prepare sentinel risk data
+    try:
+        sentinel_risks = pl.read_parquet(SENTINEL_RISK_PATH)
+    except Exception as e:
+        print(f"   ⚠️  Could not load sentinel risk data, skipping. Error: {e}")
+        return features_df.with_columns(pl.lit(0).alias("manufacturer_risk_score"))
+
+    # Ensure manufacturer column exists
+    if "manufacturer" not in features_df.columns:
+        print("   ⚠️  'manufacturer' column not in features_df, skipping Sentinel risk integration.")
+        return features_df.with_columns(pl.lit(0).alias("manufacturer_risk_score"))
+
+    # Aggregated risk: max severity per day per manufacturer
+    agg_risks = (
+        sentinel_risks
+        .group_by(["event_date", "manufacturer"])
+        .agg(pl.max("severity_score").alias("severity_score"))
+        .sort("event_date")
+    )
+
+    # 2. Prepare main features dataframe for join
+    # The join requires the dataframe to be sorted by the join key
+    features_sorted = features_df.sort("effective_date")
+
+    # 3. Point-in-time join
+    # For each row in features, find the latest risk event for that manufacturer
+    # that occurred on or before the feature's date.
+    features_with_risk = features_sorted.join_asof(
+        agg_risks,
+        left_on="effective_date",
+        right_on="event_date",
+        by="manufacturer",
+        strategy="backward",
+        tolerance="90d"  # Look back 90 days
+    )
+
+    # 4. Finalize column
+    # The join_asof with tolerance will produce nulls if no event is found in the window.
+    # We fill nulls with 0, as per requirements.
+    final_df = features_with_risk.with_columns(
+        pl.col("severity_score").fill_null(0).alias("manufacturer_risk_score")
+    ).drop("severity_score") # drop original column after renaming
+
+    print("   ✅ Sentinel risk integration complete.")
+    return final_df
 
 
 if __name__ == "__main__":
