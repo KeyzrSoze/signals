@@ -156,6 +156,7 @@ def fetch_and_score_rss() -> pl.DataFrame:
         analysis = analyses[i]
         combined_data.append({
             "title": report.get('title'),
+            "link": report.get('link'),
             "event_date": report.get('published'),
             "manufacturer": analysis.get('manufacturer'),
             "risk_type": analysis.get('risk_type'),

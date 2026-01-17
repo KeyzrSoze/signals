@@ -2,8 +2,18 @@ from celery import Celery
 from celery.schedules import crontab
 import logging
 
+# Import the new notifier utility
+try:
+    from signals.src.utils.notifications import NotificationManager
+except ImportError:
+    from ..utils.notifications import NotificationManager
+
+
 # It's good practice to have logging in async tasks
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Instantiate the notifier at the module level
+notifier = NotificationManager()
 
 
 # --- 1. Initialize Celery App ---
@@ -59,4 +69,8 @@ def run_weekly_pipeline():
     # signal_generator.generate_features()
     # train_tft.main()
     logging.info("Completed: run_weekly_pipeline task.")
+    
+    # Send a heartbeat notification upon successful completion
+    notifier.send_heartbeat("Weekly Pipeline Completed Successfully. Ready for review.")
+    
     return "Weekly pipeline finished successfully."

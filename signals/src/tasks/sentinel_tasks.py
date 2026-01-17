@@ -1,25 +1,30 @@
 import logging
 import polars as pl
 
-# Import the Celery app instance and the refactored ingestion function
+# Import the Celery app instance, the refactored ingestion function, and the new notifier
 try:
     from signals.src.tasks.celery_app import app
     from signals.src.ingestion.sentinel_ingest import fetch_and_score_rss
+    from signals.src.utils.notifications import NotificationManager
 except ImportError:
     # Handle cases where the script might be run in a different context
     from .celery_app import app
     from ..ingestion.sentinel_ingest import fetch_and_score_rss
+    from ..utils.notifications import NotificationManager
 
 
 # Configure logging for the task
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Instantiate the notifier at the module level so it can be reused
+notifier = NotificationManager()
 
 
 @app.task(name='run_sentinel_watchdog')
 def run_sentinel_watchdog():
     """
     This Celery task runs hourly. It fetches the latest FDA RSS feeds,
-    scores them for supply chain risk, and logs critical alerts.
+    scores them for supply chain risk, and sends Slack notifications for critical events.
     """
     logging.info("Executing task: run_sentinel_watchdog")
     
@@ -38,20 +43,26 @@ def run_sentinel_watchdog():
         if critical_alerts.is_empty():
             logging.info("No critical alerts found in this run.")
         else:
-            logging.warning(f"Found {len(critical_alerts)} CRITICAL alerts!")
+            logging.warning(f"Found {len(critical_alerts)} CRITICAL alerts! Sending notifications...")
             for alert in critical_alerts.to_dicts():
-                # 3. Mock a Slack webhook or other notification by printing to the console
-                # This output will appear in the Celery worker's logs.
-                alert_message = (
-                    f"🚨 CRITICAL ALERT: {alert.get('title', 'N/A')} - Risk Score {alert.get('severity_score', 'N/A')}"
+                # 3. Send a structured notification using the NotificationManager
+                details = {
+                    "Manufacturer": alert.get('manufacturer', 'N/A'),
+                    "Risk Type": alert.get('risk_type', 'N/A'),
+                    "Severity Score": alert.get('severity_score', 'N/A'),
+                    "Source Link": f"<{alert.get('link', '#')}|Click to view>"
+                }
+                
+                notifier.send_critical_alert(
+                    title=alert.get('title', 'Untitled Critical Event'),
+                    message="A new high-risk event has been processed by the Sentinel Watchdog.",
+                    details_dict=details
                 )
-                # Print to stdout and also log as a warning
-                print(alert_message)
-                logging.warning(alert_message)
         
         return f"Completed. Found {len(critical_alerts)} critical alert(s)."
 
     except Exception as e:
         logging.error(f"An error occurred in the sentinel watchdog task: {e}", exc_info=True)
-        # Raising the exception will cause Celery to mark the task as failed
+        # Re-raising the exception will cause Celery to mark the task as FAILED
+        # and potentially retry based on task configuration.
         raise
