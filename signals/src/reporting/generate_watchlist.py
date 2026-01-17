@@ -3,7 +3,9 @@ import xgboost as xgb
 import os
 import pickle
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
+from jinja2 import Environment, FileSystemLoader
+import base64
 
 # ==========================================
 # CONFIGURATION
@@ -11,6 +13,8 @@ from datetime import datetime
 PROCESSED_PATH = "data/processed"
 MODELS_PATH = "src/models/artifacts"
 OUTPUT_PATH = "data/outputs"
+TEMPLATE_DIR = "src/reporting/templates"
+IMAGE_DIR = "reports/"
 os.makedirs(OUTPUT_PATH, exist_ok=True)
 
 
@@ -27,6 +31,15 @@ def generate_risk_report():
         # Get the latest date
         latest_date = features_df["effective_date"].max()
         print(f"   📅 Reporting Date: {latest_date}")
+
+        # Check for data staleness
+        date_difference = datetime.now().date() - latest_date
+        is_stale = date_difference > timedelta(days=7)
+        stale_warning_msg = ''
+        if is_stale:
+            stale_warning_msg = 'WARNING: DATA IS OUT OF DATE. DO NOT TRADE.'
+            print(
+                f"   \n   ⚠️  {stale_warning_msg} (Data is {date_difference.days} days old)   ⚠️\n")
 
         # Filter for ONLY the latest week (The "Live" Data)
         current_market = features_df.filter(
@@ -85,29 +98,63 @@ def generate_risk_report():
         .sort("risk_score", descending=True)
         .select([
             pl.col("effective_date"),
-            pl.col("risk_score").round(3),
-            pl.col("drug_description"),
+            pl.col("risk_score").round(3).alias("score"),
+            pl.col("drug_description").alias("drug_name"),
             pl.col("manufacturer"),
-            pl.col("ingredient"),
+            # Assuming risk_type is in the report, else will be null
+            pl.lit("Price Instability").alias("risk_type"),
             pl.col("price_per_unit").alias("current_price"),
             pl.col("price_velocity_4w").round(3).alias("momentum"),
             pl.col("market_hhi").round(2).alias("monopoly_index"),
-            pl.col("is_shortage"),
-            pl.col("ndc11")
         ])
     )
 
-    # 5. Save Report
+    # 5. Generate and Save HTML Report
+    print("   📄 Generating HTML Report...")
+    try:
+        top_risks_data = final_report.head(15).to_dicts()
+
+        env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
+        template = env.get_template("risk_report.html")
+
+        image_path = os.path.join(IMAGE_DIR, "tft_forecast_plot.png")
+        embedded_image_base64 = None
+        if os.path.exists(image_path):
+            with open(image_path, "rb") as img_file:
+                embedded_image_base64 = base64.b64encode(
+                    img_file.read()).decode('utf-8')
+        else:
+            print(
+                f"   ⚠️ Warning: Image not found at '{image_path}', report will not include chart.")
+
+        html_output = template.render(
+            report_date=datetime.now().strftime("%B %d, %Y at %H:%M:%S UTC"),
+            data_is_stale=is_stale,
+            top_risks=top_risks_data,
+            embedded_image_base64=embedded_image_base64
+        )
+
+        html_filename = f"Weekly_Risk_Brief_{latest_date}.html"
+        html_save_path = os.path.join(OUTPUT_PATH, html_filename)
+        with open(html_save_path, "w", encoding="utf-8") as f:
+            f.write(html_output)
+        print(f"   ✅ HTML Report Generated and saved to {html_save_path}")
+
+    except Exception as e:
+        print(f"   ❌ Failed to generate HTML report: {e}")
+
+    # 6. Save Raw CSV Report (as backup)
+    print("   💾 Saving backup CSV report...")
     filename = f"Risk_Report_{latest_date}.csv"
     save_path = os.path.join(OUTPUT_PATH, filename)
     final_report.write_csv(save_path)
 
     print(
-        f"   ✅ Report Generated: {final_report.height} High-Risk Drugs Found")
+        f"\n   ✅ Process Complete: {final_report.height} High-Risk Drugs Found")
     print(f"   Top 5 Risks:")
     print(final_report.head(5).select(
-        ["drug_description", "risk_score", "momentum"]))
-    print(f"\n   💾 Saved to: {save_path}")
+        ["drug_name", "score", "momentum"]))
+    print(f"\n   💾 CSV backup saved to: {save_path}")
 
 
 if __name__ == "__main__":

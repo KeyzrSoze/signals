@@ -19,3 +19,4 @@ tensorboard
 celery
 redis
 flower
+jinja2
