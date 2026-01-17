@@ -41,44 +41,35 @@ def fetch_enforcement_reports(feed_url: Optional[str] = "https://www.fda.gov/abo
         print(f"   ⚠️ LIVE FEED ERROR: {e}")
         print("   🔄 Activating Circuit Breaker: Switching to Mock Data.")
 
-        # CIRCUIT BREAKER: Use Python datetime objects directly to avoid parsing errors
         return [
             {
-                "title": "[DEMO] Urgent: Sterile Water Contamination",
-                "link": "http://fda.gov/demo/1",
-                "published": datetime(2026, 1, 16, 12, 0, 0),  # Typed Object
+                "title": "[DEMO] Urgent: Sterile Water Contamination", "link": "http://fda.gov/demo/1",
+                "published": datetime(2026, 1, 16, 12, 0, 0),
                 "summary": "Urgent recall issued for Baxter International sterile water vials due to particulate matter observed in lot #4459. Risk of embolism."
             },
             {
-                "title": "[DEMO] Labeling Error: Ibuprofen",
-                "link": "http://fda.gov/demo/2",
-                "published": datetime(2026, 1, 15, 9, 30, 0),  # Typed Object
+                "title": "[DEMO] Labeling Error: Ibuprofen", "link": "http://fda.gov/demo/2",
+                "published": datetime(2026, 1, 15, 9, 30, 0),
                 "summary": "Voluntary recall of Ibuprofen 200mg by Dr. Reddy's due to potential missing child-safety cap mechanism. No chemical defects found."
             }
         ]
 
-    # Parse the content
     feed = feedparser.parse(raw_feed_content)
-
     extracted_data = []
     for entry in feed.entries:
         summary_html = entry.get('summary', '') or entry.get('description', '')
         soup = BeautifulSoup(summary_html, 'html.parser')
         cleaned_summary = soup.get_text()
 
-        # ROBUST DATE PARSING: Convert RFC 822 string to Python datetime immediately
         try:
             raw_date = entry.get('published')
-            dt_object = parsedate_to_datetime(
-                raw_date) if raw_date else datetime.now()
+            dt_object = parsedate_to_datetime(raw_date) if raw_date else datetime.now()
         except Exception:
             dt_object = datetime.now()
 
         extracted_data.append({
-            'title': entry.get('title', 'N/A'),
-            'link': entry.get('link', 'N/A'),
-            'published': dt_object,  # Store as object, not string
-            'summary': cleaned_summary.strip()
+            'title': entry.get('title', 'N/A'), 'link': entry.get('link', 'N/A'),
+            'published': dt_object, 'summary': cleaned_summary.strip()
         })
 
     print(f"   ✅ Fetched {len(extracted_data)} reports from live feed.")
@@ -87,13 +78,14 @@ def fetch_enforcement_reports(feed_url: Optional[str] = "https://www.fda.gov/abo
 
 def analyze_risk_with_gemini(text_batch: List[str]) -> List[Dict[str, any]]:
     """
-    Analyzes a batch of text for supply chain risks using Google GenAI (Gemini 2.5).
+    Analyzes a batch of text for supply chain risks using Google GenAI.
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found in environment variables.")
 
-    client = genai.Client(api_key=api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
     system_prompt = """
     You are a supply chain risk analyst. For each news summary provided, perform the following tasks:
@@ -105,26 +97,16 @@ def analyze_risk_with_gemini(text_batch: List[str]) -> List[Dict[str, any]]:
     Output must be a JSON object with a single key "analyses" containing a list of objects.
     Each object must have: 'risk_type', 'manufacturer', 'product', 'severity_score'.
     """
-
-    summaries_for_prompt = "\n".join(
-        [f"<summary>{s}</summary>" for s in text_batch])
+    summaries_for_prompt = "\n".join([f"<summary>{s}</summary>" for s in text_batch])
     full_prompt = f"{system_prompt}\n\nSummaries to analyze:\n{summaries_for_prompt}"
 
     retries = 3
     while retries > 0:
         try:
-            print("   🧠 Thinking (Gemini 2.5)...")
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type='application/json'
-                )
-            )
-
+            print("   🧠 Thinking (Gemini)...")
+            response = model.generate_content(full_prompt, generation_config=genai.types.GenerationConfig(response_mime_type='application/json'))
             analysis_result = json.loads(response.text)
             return analysis_result.get("analyses", [])
-
         except Exception as e:
             print(f"   ⚠️ API Error: {e}. Retrying...")
             retries -= 1
@@ -132,20 +114,21 @@ def analyze_risk_with_gemini(text_batch: List[str]) -> List[Dict[str, any]]:
 
     return [{"risk_type": "Error", "manufacturer": "Unknown", "severity_score": 0, "product": "Unknown"} for _ in text_batch]
 
-
-def run_sentinel():
+def fetch_and_score_rss() -> pl.DataFrame:
     """
-    Runs the full Sentinel pipeline.
+    Fetches the latest FDA enforcement reports, analyzes them for risk with an LLM,
+    and returns the scored events as a Polars DataFrame.
     """
-    print("\n🚀 Starting Sentinel Risk Analysis Pipeline...")
+    print("\n🚀 Running Sentinel RSS Fetch & Score...")
 
     # 1. Fetch
     reports = fetch_enforcement_reports()
     if not reports:
-        return
+        return pl.DataFrame()
 
-    # Filter empty summaries
     reports_with_summaries = [r for r in reports if r.get('summary')]
+    if not reports_with_summaries:
+        return pl.DataFrame()
 
     # 2. Analyze
     summaries = [report['summary'] for report in reports_with_summaries]
@@ -159,9 +142,8 @@ def run_sentinel():
     for i in range(limit):
         report = reports_with_summaries[i]
         analysis = analyses[i]
-
         combined_data.append({
-            # This is now a datetime object
+            "title": report.get('title'),
             "event_date": report.get('published'),
             "manufacturer": analysis.get('manufacturer'),
             "risk_type": analysis.get('risk_type'),
@@ -169,29 +151,32 @@ def run_sentinel():
             "raw_summary": report.get('summary')
         })
 
-    # 4. Save
-    print("   💾 Saving to Parquet...")
-    df = pl.DataFrame(combined_data)
+    if not combined_data:
+        return pl.DataFrame()
 
-    # SIMPLIFIED DATE HANDLING:
-    # Since 'event_date' is already a python object, we just cast to Date (removes time)
-    # No string parsing required!
-    df = df.with_columns(
-        pl.col("event_date").cast(pl.Date)
-    )
+    return pl.DataFrame(combined_data)
 
-    output_dir = Path("data/processed")
+def save_scored_risks(df: pl.DataFrame, output_path: str = "data/processed/sentinel_risks.parquet"):
+    """
+    Saves the scored risk DataFrame to a parquet file.
+    """
+    if df.is_empty():
+        print("   ⚠️ No data to save.")
+        return
+        
+    print(f"   💾 Saving {len(df)} risk events to {output_path}...")
+    output_dir = Path(os.path.dirname(output_path))
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "sentinel_risks.parquet"
-
+    
     final_df = df.select([
-        "event_date", "manufacturer", "risk_type", "severity_score", "raw_summary"
+        pl.col("event_date").cast(pl.Date), "manufacturer", "risk_type", 
+        "severity_score", "raw_summary"
     ])
-
     final_df.write_parquet(output_path)
-    print(
-        f"   ✅ SUCCESS: Saved {len(final_df)} risk events to {output_path}\n")
-
+    print(f"   ✅ SUCCESS: Saved data.")
 
 if __name__ == '__main__':
-    run_sentinel()
+    # Preserves the original script behavior when run directly
+    scored_events_df = fetch_and_score_rss()
+    if not scored_events_df.is_empty():
+        save_scored_risks(scored_events_df)

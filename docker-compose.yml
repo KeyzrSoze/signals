@@ -18,3 +18,15 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: redis_signals
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

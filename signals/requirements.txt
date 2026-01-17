@@ -16,3 +16,6 @@ torch
 pytorch-lightning
 pytorch-forecasting
 tensorboard
+celery
+redis
+flower
