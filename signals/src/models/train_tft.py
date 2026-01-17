@@ -5,22 +5,24 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.tuner import Tuner
 from pytorch_forecasting import TemporalFusionTransformer, QuantileLoss
-from pytorch_forecasting.data.encoders import GroupNormalizer, NaNLabelEncoder
+from pytorch_forecasting.data.encoders import GroupNormalizer, NaNLabelEncoder, TorchNormalizer, EncoderNormalizer
 import pandas as pd
 import logging
 
-# --- FIX: Register Safe Globals for PyTorch 2.6+ ---
-# We must allowlist both PyTorch Forecasting custom classes AND Pandas objects
-# because the checkpoints contain the dataset configuration which uses them.
+# --- FIX: Register Safe Globals ---
+# This is the correct way to handle PyTorch 2.6+ security
 torch.serialization.add_safe_globals([
     GroupNormalizer,
     NaNLabelEncoder,
+    TorchNormalizer,
+    EncoderNormalizer,
     pd.DataFrame,
     pd.Series,
     pd.Index,
     pd.RangeIndex,
     pd.core.indexes.base.Index,
-    pd.core.indexes.range.RangeIndex
+    pd.core.indexes.range.RangeIndex,
+    pd.core.internals.managers.BlockManager
 ])
 
 # --- Fix Path for Imports ---
@@ -52,7 +54,8 @@ MODEL_CHECKPOINT_PATH = os.path.join(ARTIFACTS_DIR, "tft_model.ckpt")
 MAX_EPOCHS = 30
 GRADIENT_CLIP_VAL = 0.1
 DEFAULT_LEARNING_RATE = 0.03
-FIND_LEARNING_RATE = True
+# <--- CHANGED: Set to False to skip the buggy LR finder for now
+FIND_LEARNING_RATE = False
 
 # Model Architecture
 HIDDEN_SIZE = 16
@@ -113,7 +116,7 @@ def main():
         callbacks=[early_stop_callback, checkpoint_callback],
     )
 
-    # 5. Find Learning Rate
+    # 5. Handle Learning Rate (Simplified)
     if FIND_LEARNING_RATE:
         logging.info("Finding optimal learning rate...")
         try:
@@ -127,20 +130,18 @@ def main():
             )
 
             suggested_lr = lr_finder.suggestion()
-
-            if suggested_lr is None:
-                logging.warning(
-                    "⚠️ LR Finder returned None. Using default LR.")
-                tft.hparams.learning_rate = DEFAULT_LEARNING_RATE
-            else:
+            if suggested_lr:
                 logging.info(f"📈 Suggested learning rate: {suggested_lr:.2e}")
                 tft.hparams.learning_rate = suggested_lr
+            else:
+                tft.hparams.learning_rate = DEFAULT_LEARNING_RATE
 
         except Exception as e:
             logging.warning(
                 f"⚠️ Learning rate finder failed: {e}. Using default LR.")
             tft.hparams.learning_rate = DEFAULT_LEARNING_RATE
     else:
+        logging.info(f"Using default learning rate: {DEFAULT_LEARNING_RATE}")
         tft.hparams.learning_rate = DEFAULT_LEARNING_RATE
 
     # 6. Train

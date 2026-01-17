@@ -9,9 +9,36 @@ import logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- FIX: REMOVED "signals/" PREFIX ---
-DATA_PATH = "data/processed/weekly_features.parquet"
 
+def find_data_path():
+    """
+    Robustly finds the weekly_features.parquet file.
+    Searches current dir, parent dir, and project root.
+    """
+    filename = "weekly_features.parquet"
+    candidates = [
+        "data/processed/" + filename,
+        "signals/data/processed/" + filename,
+        "../data/processed/" + filename,
+        "../../data/processed/" + filename
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    # If not found relative, try finding absolute path from script location
+    base_dir = os.path.dirname(os.path.abspath(__file__))  # src/models
+    root_dir = os.path.dirname(os.path.dirname(base_dir))  # project root
+    abs_path = os.path.join(root_dir, "data/processed", filename)
+
+    if os.path.exists(abs_path):
+        return abs_path
+
+    return None
+
+
+DATA_PATH = find_data_path()
 MIN_SERIES_LENGTH = 20
 MAX_ENCODER_LENGTH = 36
 MAX_PREDICTION_LENGTH = 12
@@ -19,40 +46,30 @@ BATCH_SIZE = 128
 
 
 def create_tft_dataloaders(batch_size: int = BATCH_SIZE) -> tuple:
+    if DATA_PATH is None:
+        raise FileNotFoundError(
+            "Could not find 'weekly_features.parquet' in any expected location.")
+
     logging.info(f"Loading data from '{DATA_PATH}'...")
-
-    # Check if file exists (Relative Path)
-    if not os.path.exists(DATA_PATH):
-        # Check absolute path fallback
-        abs_path = os.path.abspath(DATA_PATH)
-        if not os.path.exists(abs_path):
-            logging.error(f"❌ Data file not found at: {abs_path}")
-            logging.error(
-                "   Please run: python src/features/signal_generator.py")
-            raise FileNotFoundError(f"Data file not found: {DATA_PATH}")
-
     df = pl.read_parquet(DATA_PATH)
     logging.info(f"Loaded {len(df)} records.")
 
     # Data Cleaning
     logging.info("Starting data cleaning and preparation...")
-
-    # Filter short series
     series_lengths = df.group_by("ndc11").len().filter(
         pl.col("len") >= MIN_SERIES_LENGTH)
+
     if series_lengths.is_empty():
         raise ValueError(
             f"No NDCs found with history >= {MIN_SERIES_LENGTH} weeks.")
 
     df = df.join(series_lengths.select("ndc11"), on="ndc11", how="inner")
 
-    # Create time index
     df = df.sort(["ndc11", "effective_date"])
     df = df.with_columns(
         pl.arange(0, pl.len()).over("ndc11").alias("time_idx")
     )
 
-    # Fill nulls and cast
     feature_cols = [
         "price_per_unit", "price_velocity_4w", "price_volatility_12w",
         "market_hhi", "num_competitors", "is_shortage", "weeks_in_shortage",
@@ -62,7 +79,6 @@ def create_tft_dataloaders(batch_size: int = BATCH_SIZE) -> tuple:
         if col in df.columns:
             df = df.with_columns(pl.col(col).fill_null(0.0).cast(pl.Float32))
 
-    # Cast categoricals
     df = df.with_columns([
         pl.col("ndc11").cast(pl.Categorical),
         pl.col("manufacturer").cast(pl.Categorical),
