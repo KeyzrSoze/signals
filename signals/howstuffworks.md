@@ -6,8 +6,8 @@
 
 **The "Crystal Ball" Logic:**
 1.  **The Ear:** We listen to FDA signals (Recalls, Inspections).
-2.  **The Brain:** A Knowledge Graph (Neo4j) traces that signal from a factory in India to every specific pill bottle on a US pharmacy shelf.
-3.  **The Prediction:** AI models combine this "Structural Risk" with "Price Momentum" to forecast spikes 8 weeks out.
+2.  **The Brain (Graph):** A Knowledge Graph (Neo4j) traces that signal from a factory in India to every specific pill bottle on a US pharmacy shelf.
+3.  **The Prediction (TFT):** A Deep Learning model (Transformer) combines this "Structural Risk" with "Price Momentum" to forecast exact price ranges 8 weeks out.
 
 ---
 
@@ -19,30 +19,22 @@
 * **The Solution:** We built a Graph Topology:
     * `(Factory)-[:MAKES]->(Ingredient)-[:IN]->(Drug)`
     * `(Parent Corp)-[:OWNS]->(Subsidiary)`
-* **Risk Propagation:** If a Factory node turns "Red" (Inspection Failure), our **Graph Traversal Algorithm** pushes that risk score down the edges. If you buy a drug connected to that factory, your risk score goes up, even if the price hasn't moved yet.
+* **Risk Propagation:** If a Factory node turns "Red" (Inspection Failure), our **RiskEngine** pushes that risk score down the edges. If you buy a drug connected to that factory, your risk score goes up, even if the price hasn't moved yet.
 
-### B. The Ingestion Engine (ETL)
-* **Polars-based Pipelines:** High-performance Rust backends for processing millions of NADAC rows.
-* **Data Sources:**
-    * **CMS NADAC:** The "Ticker Tape" of pharmacy pricing.
-    * **FDA Shortages:** The historical record of failures.
-    * **FDA FEI (Facility Establishment Identifier):** The physical address book of every drug factory on earth.
+### B. The Predictive Core (Temporal Fusion Transformer)
+* **Architecture:** We replaced standard XGBoost with a **Temporal Fusion Transformer (TFT)**.
+* **Why TFT?**
+    1.  **Sequence Aware:** It understands that "Winter" follows "Autumn" (Crucial for flu-season drugs like Amoxicillin).
+    2.  **Probabilistic:** Instead of saying "Yes/No Spike", it says "90% chance price will be between $5.00 and $7.50".
+    3.  **Explainable:** It uses "Attention Heads" to tell us: *"I predicted this spike because the Supplier Diversity Score dropped, not because of price momentum."*
 
-### C. The Predictive Core (Hybrid AI)
-* **Feature Fusion:** We combine two types of intelligence:
-    1.  **Temporal:** Price Velocity, Volatility (Time Series).
-    2.  **Structural:** Graph Centrality, Supplier Concentration (Network Science).
-* **Model:** XGBoost Classifier (Gradient Boosted Trees).
-* **Zero Leakage:** Strict `join_asof` usage ensures we never train on data from the future.
+### C. The Shadow Formulary (Financial Simulation)
+* **Objective:** Translate abstract probabilities into concrete financial exposure (VaR).
+* **Logic:**
+    * **Input:** The **P90 Forecast** (Worst Case Scenario) from the TFT model.
+    * **Calculation:** `Loss = (P90_Price - Current_Price) * Volume`.
+* **Result:** This allows CFOs to budget for "Inflation Shock" rather than just "Risk."
 
-### D. The Sentinel (LLM Agent)
-* **Role:** The Reader.
-* **Logic:** FDA reports are messy text ("...debris found in hopper 4...").
-* **Agent:** We use **Gemini 2.5 Flash** to read these reports and extract:
-    * **Entity:** Who is it? (Mapped to Graph Node).
-    * **Severity:** 0-10 Score.
-    * **Type:** "Quality Failure" vs "Paperwork Error".
-
-### E. Financial Simulation
-* **Monte Carlo:** We translate "Risk Score 8" into "Expected Loss: $450,000".
-* **Method:** 1,000 parallel simulations per drug per week.
+### D. The Sentinel (Unstructured Intelligence)
+* **LLM Integration:** Gemini 2.5 Flash acts as a "Signal Transducer," converting messy FDA RSS feeds into structured `severity_scores` (0-10).
+* **Graph Enrichment:** Gemini also acts as a "Detective," fuzzy-matching corporate names to physical FDA Facility Establishment Identifiers (FEIs).

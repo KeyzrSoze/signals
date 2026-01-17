@@ -1,21 +1,16 @@
 # Project Signals: Master Canvas
 
-**Project Goal:** Construct an enterprise-grade Early Warning System (EWS) for pharmacy price spikes using "Network Science" & Event Sourcing.
+**Project Goal:** Construct an enterprise-grade Early Warning System (EWS) for pharmacy price spikes using **Graph Neural Networks** & **Probabilistic Deep Learning**.
 **Core Metric:** Accuracy (Zero Data Leakage).
-**Tech Stack:** Python 3.12, Polars, XGBoost, **Neo4j (Graph DB)**, Gemini 2.5 Flash.
-
-## 🛠 Data Source Manifest
-| Data Source | Type | Usage | Ingestion Script |
-|:---|:---|:---|:---|
-| **CMS NADAC** | Structured (CSV) | Pricing History & Baselines | `src/ingestion/nadac_ingest.py` |
-| **FDA NDC Directory** | Structured (JSON) | Product Metadata & Labeler Codes | `src/ingestion/ndc_library.py` |
-| **FDA Shortages** | Semi-Structured (Web) | Historical Shortage Events | `src/ingestion/fda_shortages.py` |
-| **FDA Enforcement** | Unstructured (RSS) | Recalls & Warning Letters | `src/ingestion/sentinel_ingest.py` |
-| **FDA FEI Database** | Structured (CSV) | Factory Locations & Registrations | `src/graph/enrich_facilities.py` |
+**Tech Stack:** * **Core:** Python 3.12, Polars, Git.
+* **Graph:** Neo4j (Graph Database), Cypher.
+* **AI/ML:** PyTorch Forecasting (Temporal Fusion Transformer), XGBoost.
+* **GenAI:** Google Gemini 2.5 Flash (Entity Resolution & Sentiment).
 
 ## Phase 1: Environment & Architecture
 - [x] Structure: Domain-driven directory tree.
 - [x] Environment: Conda environment `signals` active.
+- [x] Version Control: Git initialized.
 
 ## Phase 2: The Ingestion Engine
 - [x] **2A: NADAC Processor:** Strict schema enforcement & case-insensitive normalization.
@@ -23,25 +18,37 @@
 - [x] **2C: Reference Data:** Master list of valid NDCs.
 
 ## Phase 3: The Entity Map (Graph Upgrade)
-**Objective:** Move from Flat Files to a Knowledge Graph.
-- [x] **3A: Graph Hydration:** Ported Entity Map to Neo4j.
-- [x] **3B: Facility Resolution:** Used Gemini 2.5 Flash to link "Corporate Subsidiaries" to "Physical Factories" (FEI Numbers).
-- [x] **3C: Risk Propagation:** Implemented "Contagion Logic" where factory risks flow to NDCs.
+- [x] **Entity Map Construction:** Created bridge table (NDC <-> Ingredient <-> Manufacturer).
+- [x] **Graph Database Hydration:** Ported flat maps into **Neo4j** nodes/edges.
+- [x] **Facility Enrichment:** Used **Gemini Flash** to link corporate subsidiaries to physical FDA-registered factories (FEI Numbers).
 
 ## Phase 4: Signal Generation
 - [x] **Time Machine Logic:** `join_asof` for point-in-time correctness.
-- [x] **Graph Embeddings:** Extracted Node2Vec structural features.
-- [x] **Market Structure:** Calculated HHI (Monopoly Index).
+- [x] **Graph Topology:** Extracted **FastRP Embeddings** and Supplier Diversity Scores to measure supply chain resilience.
+- [x] **Sentinel Integration:** Merged unstructured LLM risk scores with structured market data.
 
-## Phase 5: Modeling (XGBoost)
-- [x] **Model Architecture:** XGBoost Classifier trained on `graph_features` + `market_signals`.
-- [x] **Performance:** Recall improved by detecting "Hidden Risks" (Sister Company contagion).
+## Phase 5: Baseline Modeling (XGBoost)
+- [x] **Binary Classification:** Trained XGBoost to predict >10% spikes.
+- [x] **Performance:** Achieved ~68% Recall on historical baselines.
 
 ## Phase 6: Consulting Deliverables
-- [x] **Automated Risk Reporting:** "Monday Morning" watchlist with "Reason Codes" (e.g., "Upstream Factory Failure").
+- [x] **Automated Risk Reporting:** "Monday Morning" watchlist ranking drugs by risk probability.
 
 ## Phase 7: The Sentinel (Unstructured Intelligence)
 - [x] **LLM "Signal Transducer":** Gemini Flash parses FDA text into quantitative `severity_scores` (0-10).
 
-## Phase 8: Financial Risk Simulation
-- [x] **Monte Carlo Engine:** Simulates 1,000 market scenarios to calculate Value at Risk (VaR).
+## Phase 8: Financial Risk Simulation (Shadow Formulary)
+- [x] **Inflation Forecasting:** Upgraded from static risk scoring to dynamic **Inflation Forecasting**.
+- [x] **Logic:** Uses TFT P90 (Worst Case) forecasts to calculate `projected_unit_loss`.
+
+## Phase 9: System Integration
+- [x] **Temporal Joining:** Unified Graph features, Price history, and Sentiment scores into a single `TimeSeriesDataSet`.
+
+## Phase 10: Deep Learning (Blueprint 3)
+- [x] **Temporal Fusion Transformer (TFT):** Implemented a state-of-the-art Time Series architecture.
+- [x] **Probabilistic Forecasting:** Output P10, P50, and P90 confidence intervals instead of binary flags.
+- [x] **Explainability:** Generated "Attention Weight" maps to show *why* a spike is predicted (e.g., Seasonality vs. Sentinel Risk).
+
+## Phase 11: Network Intelligence (Blueprint 1)
+- [x] **Risk Propagation Engine:** Implemented a recursive graph traversal algorithm.
+- [x] **Logic:** If a factory node fails (Score 10), risk decays across the graph edges to infect related NDCs and Sister Companies ("Financial Contagion").
