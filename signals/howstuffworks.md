@@ -2,12 +2,12 @@
 
 ## 1. The "Elevator Pitch"
 **What does this system do?**
-"Signals" is a "Digital Twin" of the Pharmaceutical Supply Chain. It doesn't just track prices; it maps the physical web of factories, parent companies, and shipping lanes to predict failures before they happen.
+"Signals" is a "Digital Twin" of the Pharmaceutical Supply Chain. It maps the physical web of factories, parent companies, and shipping lanes to predict failures before they happen.
 
-**The "Crystal Ball" Logic:**
-1.  **The Ear:** We listen to FDA signals (Recalls, Inspections).
-2.  **The Brain (Graph):** A Knowledge Graph (Neo4j) traces that signal from a factory in India to every specific pill bottle on a US pharmacy shelf.
-3.  **The Prediction (TFT):** A Deep Learning model (Transformer) combines this "Structural Risk" with "Price Momentum" to forecast exact price ranges 8 weeks out.
+**How does it work?**
+1.  **It Listens (24/7):** An autonomous "Reflex Agent" monitors FDA feeds every hour.
+2.  **It Thinks (Weekly):** A Deep Learning "Brain" wakes up weekly to retrain on global pricing trends.
+3.  **It Predicts:** It combines real-time alerts with long-term forecasts to protect the client's budget.
 
 ---
 
@@ -15,26 +15,30 @@
 
 ### A. The Knowledge Graph (The "Map")
 * **Technology:** Neo4j + Gemini 2.5 Flash.
-* **The Problem:** Pharma data is opaque. "Teva USA" and "Teva Israel" look like different companies in a database, but they share risk.
-* **The Solution:** We built a Graph Topology:
-    * `(Factory)-[:MAKES]->(Ingredient)-[:IN]->(Drug)`
-    * `(Parent Corp)-[:OWNS]->(Subsidiary)`
-* **Risk Propagation:** If a Factory node turns "Red" (Inspection Failure), our **RiskEngine** pushes that risk score down the edges. If you buy a drug connected to that factory, your risk score goes up, even if the price hasn't moved yet.
+* **Logic:** Maps `(Factory)-[:MAKES]->(Ingredient)-[:IN]->(Drug)`. Uses **Risk Propagation** to trace "Contagion" from a failed factory to specific drug products.
 
 ### B. The Predictive Core (Temporal Fusion Transformer)
-* **Architecture:** We replaced standard XGBoost with a **Temporal Fusion Transformer (TFT)**.
-* **Why TFT?**
-    1.  **Sequence Aware:** It understands that "Winter" follows "Autumn" (Crucial for flu-season drugs like Amoxicillin).
-    2.  **Probabilistic:** Instead of saying "Yes/No Spike", it says "90% chance price will be between $5.00 and $7.50".
-    3.  **Explainable:** It uses "Attention Heads" to tell us: *"I predicted this spike because the Supplier Diversity Score dropped, not because of price momentum."*
+* **Architecture:** A **Temporal Fusion Transformer (TFT)** that replaces standard XGBoost.
+* **Capability:** Provides **Probabilistic Forecasting** (P10/P90 confidence intervals) and understands seasonality (e.g., Flu Season).
 
 ### C. The Shadow Formulary (Financial Simulation)
-* **Objective:** Translate abstract probabilities into concrete financial exposure (VaR).
-* **Logic:**
-    * **Input:** The **P90 Forecast** (Worst Case Scenario) from the TFT model.
-    * **Calculation:** `Loss = (P90_Price - Current_Price) * Volume`.
-* **Result:** This allows CFOs to budget for "Inflation Shock" rather than just "Risk."
+* **Objective:** Calculates financial **Value at Risk (VaR)**.
+* **Logic:** `Loss = (P90_Forecast - Current_Price) * Volume`. Allows CFOs to budget for "Inflation Shock."
 
 ### D. The Sentinel (Unstructured Intelligence)
-* **LLM Integration:** Gemini 2.5 Flash acts as a "Signal Transducer," converting messy FDA RSS feeds into structured `severity_scores` (0-10).
-* **Graph Enrichment:** Gemini also acts as a "Detective," fuzzy-matching corporate names to physical FDA Facility Establishment Identifiers (FEIs).
+* **Role:** A "Signal Transducer" using Gemini Flash to convert messy FDA text into quantitative `severity_scores` (0-10).
+
+### E. The Autonomous Nervous System (New!)
+**Architecture:**
+We split the system into two biological components using **Celery** (Scheduler) and **Redis** (Memory).
+
+1.  **The Reflex System (The Watchdog):**
+    * **Frequency:** Every 60 Minutes.
+    * **Task:** Checks FDA RSS feeds for *new* Warning Letters only.
+    * **Logic:** If Gemini scores an event > 8/10 (e.g., "Factory Shutdown"), it triggers an **Immediate Alert** without waiting for the weekly report.
+    * **Cost:** Near zero (sleeps 59 mins/hour).
+
+2.  **The Brain System (The Strategist):**
+    * **Frequency:** Every Wednesday (06:00 UTC).
+    * **Task:** Runs the heavy pipeline: `Ingest Prices` -> `Update Graph` -> `Retrain TFT Model` -> `Update Financial Forecasts`.
+    * **Purpose:** Captures slow-moving trends like inflation or market consolidation.

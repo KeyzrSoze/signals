@@ -143,3 +143,19 @@ To run this automatically every Wednesday at 6:00 AM, add this to your `crontab`
 
 ```bash
 0 6 * * 3 cd /path/to/signals && /path/to/conda/python src/pipeline_runner.py >> logs/weekly_run.log 2>&1
+
+🤖 Phase 6: Autonomous Mode (Production)
+
+**Goal:** Run the system as a "Set and Forget" service.
+
+### 1. The Architecture
+* **The Clock (Celery Beat):** Dictates the schedule (Hourly Watchdog, Weekly Training).
+* **The Muscle (Celery Worker):** Executes the Python code.
+* **The Memory (Redis):** Stores task queues and execution history.
+
+### 2. Starting the System
+You can start the entire nervous system with a single command:
+
+```bash
+# This starts the Worker and the Beat scheduler together
+sh start_worker.sh
