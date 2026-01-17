@@ -159,3 +159,147 @@ You can start the entire nervous system with a single command:
 ```bash
 # This starts the Worker and the Beat scheduler together
 sh start_worker.sh
+
+Based on your implementation of the "Autonomous Nervous System" (Blueprint 4) and the files you have uploaded, here is the comprehensive **Start-to-Finish Instructional Outline**.
+
+This guide covers setup, execution, and crucially, **how to interpret and pitch the deliverables** to business stakeholders.
+
+---
+
+### **Part 1: The Setup (Day 0)**
+
+*Do this once to initialize the system.*
+
+**1. Infrastructure Initialization**
+
+* **Action:** Boot up the brain (Graph DB) and the memory (Redis).
+* **Command:** `docker-compose up -d`
+* **Verification:**
+* Neo4j Browser: `http://localhost:7474` (User: `neo4j` / Pass: `password`)
+* Redis: Check logs or ensure container is running.
+
+
+
+**2. Environment & Dependencies**
+
+* **Action:** Install the Python "muscles."
+* **Command:**
+```bash
+conda activate signals
+pip install -r requirements.txt
+
+```
+
+
+
+**3. Graph Hydration (The Map)**
+
+* **Action:** Load your baseline supply chain map (Manufacturers -> Factories -> Drugs).
+* **Commands:**
+```bash
+# 1. Define the Rules (Constraints)
+python src/graph/setup_db.py
+
+# 2. Load the Map (Nodes & Edges)
+python src/graph/hydrate_baseline.py
+
+# 3. Connect the Factories (The "Detective" Layer)
+python src/graph/enrich_facilities.py
+
+```
+
+---
+
+### **Part 2: The Routine (Weekly Execution)**
+
+*How to run the system in production. You can run these manually or use the `start_worker.sh` for autonomous mode.*
+
+**Step 1: The Ingestion (Wake Up)**
+
+* **Goal:** Get the latest prices and news.
+* **Scripts:**
+* `src/ingestion/nadac_ingest.py` (Prices)
+* `src/ingestion/sentinel_ingest.py` (Risk News)
+* `src/ingestion/fda_shortages.py` (Shortage Status)
+
+
+
+**Step 2: The "Brain" Update (Retrain)**
+
+* **Goal:** Teach the AI about the new data from the last week.
+* **Scripts:**
+* `src/features/extract_graph_embeddings.py` (Update Supply Chain scores)
+* `src/features/signal_generator.py` (Merge all data)
+* `src/models/train_tft.py` (Train the Deep Learning Model)
+
+
+
+**Step 3: The Forecast (Predict)**
+
+* **Goal:** Generate the forward-looking predictions.
+* **Scripts:**
+* `src/reporting/explain_tft.py` (Generate "Why" plots)
+* `src/simulation/monte_carlo.py` (Calculate Financial Loss)
+* `src/reporting/generate_watchlist.py` (Create the CSV report)
+
+
+
+---
+
+### **Part 3: The Deliverables & How to Explain Them**
+
+*This is the most critical part: Translating Python output into Business Value.*
+
+#### **Deliverable A: The "Monday Morning" Watchlist**
+
+* **File:** `reports/weekly_watchlist.csv`
+* **What it is:** A prioritized list of drugs likely to spike in price in the next 8 weeks.
+* **How to Explain it (The Pitch):**
+> "This isn't just a list of shortages. It's a list of **Inflation Risks**.
+> Look at **Amoxicillin**: The system flagged it not because the price moved (it hasn't yet), but because a factory in India just failed inspection (Sentinel Score 9) and import volumes dropped.
+> **Recommendation:** We should buy 3 months of inventory *now* at the current price ($5.00) before it spikes to $12.00 next month."
+
+
+
+#### **Deliverable B: The "Risk Tunnel" Plot**
+
+* **File:** `reports/tft_explanation.png`
+* **What it is:** A chart showing the historical price and the AI's predicted price range (P10 to P90).
+* **How to Explain it:**
+> "See this shaded tunnel? That is the AI's confidence interval.
+> The 'Actual' price is the solid line. The AI is predicting a **90% probability** (the top of the tunnel) that the price will breach $15.00 by March.
+> The 'Feature Importance' bar chart below shows *why*: 60% of this prediction is driven by the **Supplier Risk Score**, not historical seasonality."
+
+
+
+#### **Deliverable C: The Financial "Value at Risk" (VaR)**
+
+* **Output:** Console Log / Report Summary from `monte_carlo.py`
+* **What it is:** A dollar amount representing potential loss (e.g., "Portfolio VaR: $450,000").
+* **How to Explain it (To the CFO):**
+> "We ran 1,000 simulations on our current portfolio.
+> In the **Worst Case Scenario** (95th percentile), we stand to lose **$450,000** to unexpected price hikes this quarter.
+> This represents our 'Unhedged Inflation Exposure.' We can reduce this to $50,000 if we lock in contracts for the top 5 drugs on the Watchlist today."
+
+
+
+---
+
+### **Part 4: The Autonomous Mode (Blueprint 4)**
+
+*If you want to "Set and Forget" the system.*
+
+1. **Start the Worker:**
+Run `sh start_worker.sh` in a terminal (or background process).
+2. **What Happens:**
+* **Hourly:** The system checks FDA feeds. If a "Factory Shutdown" (Score 10) is detected, it alerts you *immediately*.
+* **Weekly (Wed 06:00):** It automatically runs the full pipeline (Part 2) and updates the deliverables.
+
+
+
+### **Summary Checklist for Success**
+
+1. [ ] **Graph Hydrated?** (Check Neo4j for nodes)
+2. [ ] **Prices Fresh?** (Check `data/raw/nadac` for this week's file)
+3. [ ] **Model Trained?** (Check date on `src/models/artifacts/tft_model.ckpt`)
+4. [ ] **Story Ready?** (Have the Watchlist and VaR numbers ready for your meeting)

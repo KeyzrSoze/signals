@@ -63,7 +63,8 @@ def fetch_enforcement_reports(feed_url: Optional[str] = "https://www.fda.gov/abo
 
         try:
             raw_date = entry.get('published')
-            dt_object = parsedate_to_datetime(raw_date) if raw_date else datetime.now()
+            dt_object = parsedate_to_datetime(
+                raw_date) if raw_date else datetime.now()
         except Exception:
             dt_object = datetime.now()
 
@@ -78,14 +79,14 @@ def fetch_enforcement_reports(feed_url: Optional[str] = "https://www.fda.gov/abo
 
 def analyze_risk_with_gemini(text_batch: List[str]) -> List[Dict[str, any]]:
     """
-    Analyzes a batch of text for supply chain risks using Google GenAI.
+    Analyzes a batch of text for supply chain risks using Google GenAI (v1.0+ SDK).
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found in environment variables.")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # --- UPDATED: New Client Syntax ---
+    client = genai.Client(api_key=api_key)
 
     system_prompt = """
     You are a supply chain risk analyst. For each news summary provided, perform the following tasks:
@@ -97,14 +98,24 @@ def analyze_risk_with_gemini(text_batch: List[str]) -> List[Dict[str, any]]:
     Output must be a JSON object with a single key "analyses" containing a list of objects.
     Each object must have: 'risk_type', 'manufacturer', 'product', 'severity_score'.
     """
-    summaries_for_prompt = "\n".join([f"<summary>{s}</summary>" for s in text_batch])
+    summaries_for_prompt = "\n".join(
+        [f"<summary>{s}</summary>" for s in text_batch])
     full_prompt = f"{system_prompt}\n\nSummaries to analyze:\n{summaries_for_prompt}"
 
     retries = 3
     while retries > 0:
         try:
             print("   🧠 Thinking (Gemini)...")
-            response = model.generate_content(full_prompt, generation_config=genai.types.GenerationConfig(response_mime_type='application/json'))
+
+            # --- UPDATED: New Generation Call ---
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type='application/json'
+                )
+            )
+
             analysis_result = json.loads(response.text)
             return analysis_result.get("analyses", [])
         except Exception as e:
@@ -113,6 +124,7 @@ def analyze_risk_with_gemini(text_batch: List[str]) -> List[Dict[str, any]]:
             time.sleep(2)
 
     return [{"risk_type": "Error", "manufacturer": "Unknown", "severity_score": 0, "product": "Unknown"} for _ in text_batch]
+
 
 def fetch_and_score_rss() -> pl.DataFrame:
     """
@@ -156,6 +168,7 @@ def fetch_and_score_rss() -> pl.DataFrame:
 
     return pl.DataFrame(combined_data)
 
+
 def save_scored_risks(df: pl.DataFrame, output_path: str = "data/processed/sentinel_risks.parquet"):
     """
     Saves the scored risk DataFrame to a parquet file.
@@ -163,17 +176,18 @@ def save_scored_risks(df: pl.DataFrame, output_path: str = "data/processed/senti
     if df.is_empty():
         print("   ⚠️ No data to save.")
         return
-        
+
     print(f"   💾 Saving {len(df)} risk events to {output_path}...")
     output_dir = Path(os.path.dirname(output_path))
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     final_df = df.select([
-        pl.col("event_date").cast(pl.Date), "manufacturer", "risk_type", 
+        pl.col("event_date").cast(pl.Date), "manufacturer", "risk_type",
         "severity_score", "raw_summary"
     ])
     final_df.write_parquet(output_path)
     print(f"   ✅ SUCCESS: Saved data.")
+
 
 if __name__ == '__main__':
     # Preserves the original script behavior when run directly

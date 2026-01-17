@@ -4,7 +4,8 @@ from neo4j import GraphDatabase, basic_auth
 import logging
 
 # --- Configuration ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Neo4j connection
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -24,7 +25,8 @@ class GraphFeatureExtractor:
 
     def __init__(self, uri: str, user: str, password: str):
         try:
-            self.driver = GraphDatabase.driver(uri, auth=basic_auth(user, password))
+            self.driver = GraphDatabase.driver(
+                uri, auth=basic_auth(user, password))
             self.driver.verify_connectivity()
             logging.info("✅ Successfully connected to Neo4j.")
         except Exception as e:
@@ -47,19 +49,21 @@ class GraphFeatureExtractor:
         Checks if the GDS graph projection exists and creates it if not.
         NOTE: Requires the Neo4j Graph Data Science plugin to be installed.
         """
-        logging.info(f"Checking for GDS projection: '{GDS_PROJECTION_NAME}'...")
-        
+        logging.info(
+            f"Checking for GDS projection: '{GDS_PROJECTION_NAME}'...")
+
         # Check if GDS is installed by trying a basic command
         try:
             self._run_query("RETURN gds.version()")
         except Exception as e:
             if "Unknown function 'gds.version'" in str(e):
                 logging.error("❌ GDS plugin not found on the Neo4j server.")
-                logging.error("   Cannot generate graph embeddings. Please install the GDS plugin.")
+                logging.error(
+                    "   Cannot generate graph embeddings. Please install the GDS plugin.")
                 return False
             # Some other error
             raise e
-            
+
         exists_query = "CALL gds.graph.exists($name) YIELD exists"
         if not self._run_query(exists_query, params={"name": GDS_PROJECTION_NAME})[0]['exists']:
             logging.info("Projection not found. Creating a new one...")
@@ -77,8 +81,10 @@ class GraphFeatureExtractor:
             )
             YIELD graphName, nodeCount, relationshipCount
             """
-            result = self._run_query(create_query, params={"name": GDS_PROJECTION_NAME})[0]
-            logging.info(f"   Created projection with {result['nodeCount']} nodes and {result['relationshipCount']} relationships.")
+            result = self._run_query(create_query, params={
+                                     "name": GDS_PROJECTION_NAME})[0]
+            logging.info(
+                f"   Created projection with {result['nodeCount']} nodes and {result['relationshipCount']} relationships.")
         else:
             logging.info("   Projection already exists.")
         return True
@@ -88,8 +94,10 @@ class GraphFeatureExtractor:
         Generates graph embeddings for NDC nodes using the FastRP algorithm.
         """
         logging.info("Generating FastRP embeddings for NDC nodes...")
+
+        # FIX: Changed 'fastRp' to 'fastRP' (Case Sensitive in Neo4j GDS)
         query = """
-        CALL gds.fastRp.stream($name, {
+        CALL gds.fastRP.stream($name, {
             embeddingDimension: $dim,
             nodeLabels: ['NDC']
         })
@@ -98,14 +106,16 @@ class GraphFeatureExtractor:
         RETURN n.ndc11 AS ndc11, embedding AS graph_embedding_vector
         """
         try:
-            results = self._run_query(query, params={"name": GDS_PROJECTION_NAME, "dim": EMBEDDING_VECTOR_SIZE})
+            results = self._run_query(
+                query, params={"name": GDS_PROJECTION_NAME, "dim": EMBEDDING_VECTOR_SIZE})
             if not results:
                 logging.warning("FastRP did not return any embeddings.")
                 return pl.DataFrame({"ndc11": [], "graph_embedding_vector": []})
             return pl.from_records(results)
         except Exception as e:
             logging.error(f"❌ Failed to run FastRP: {e}")
-            logging.error("   This may be because the GDS plugin is not installed or configured correctly.")
+            logging.error(
+                "   This may be because the GDS plugin is not installed or configured correctly.")
             return None
 
     def _get_supplier_diversity(self) -> pl.DataFrame:
@@ -129,13 +139,13 @@ class GraphFeatureExtractor:
         """
         if not self.driver:
             return None
-        
+
         # 1. Generate embeddings with GDS
         if not self._ensure_gds_projection():
-            return None # Stop if GDS is not available
+            return None  # Stop if GDS is not available
         embeddings_df = self._get_fastrp_embeddings()
         if embeddings_df is None:
-            return None # Stop if embedding generation failed
+            return None  # Stop if embedding generation failed
 
         # 2. Calculate supplier diversity
         diversity_df = self._get_supplier_diversity()
@@ -143,7 +153,7 @@ class GraphFeatureExtractor:
         # 3. Join features and return
         logging.info("Joining embedding and diversity features...")
         final_df = diversity_df.join(embeddings_df, on="ndc11", how="left")
-        
+
         return final_df
 
 
@@ -152,22 +162,26 @@ def main():
     logging.info("🚀 Starting graph feature extraction process...")
     extractor = None
     try:
-        extractor = GraphFeatureExtractor(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+        extractor = GraphFeatureExtractor(
+            NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
         graph_features = extractor.extract_features()
 
         if graph_features is not None and not graph_features.is_empty():
             # Ensure the output directory exists
             os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
             graph_features.write_parquet(OUTPUT_PATH)
-            logging.info(f"✅ Successfully saved {len(graph_features)} records to '{OUTPUT_PATH}'")
+            logging.info(
+                f"✅ Successfully saved {len(graph_features)} records to '{OUTPUT_PATH}'")
         else:
-            logging.warning("No graph features were generated. Output file was not created.")
+            logging.warning(
+                "No graph features were generated. Output file was not created.")
 
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
     finally:
         if extractor:
             extractor.close()
+
 
 if __name__ == "__main__":
     main()
