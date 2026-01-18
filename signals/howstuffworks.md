@@ -42,3 +42,13 @@ We split the system into two biological components using **Celery** (Scheduler) 
     * **Frequency:** Every Wednesday (06:00 UTC).
     * **Task:** Runs the heavy pipeline: `Ingest Prices` -> `Update Graph` -> `Retrain TFT Model` -> `Update Financial Forecasts`.
     * **Purpose:** Captures slow-moving trends like inflation or market consolidation.
+
+## 3 The Self-Correction Mechanism (The Scorecard)
+Unlike standard AI that "fires and forgets," Signals tracks its own homework.
+
+* **The Registry:** Every prediction is logged in a permanent ledger (`prediction_registry`).
+* **The Audit:** Every week, the system looks back 4 weeks.
+    * *Did we predict a spike for Amoxicillin?* **Yes.**
+    * *Did the price actually go up?* **Yes.**
+    * *Result:* **Accuracy Score Increases.**
+* **Trust Metric:** We report a "Trailing 12-Week Accuracy" score so you know exactly how much to trust the current forecast.
