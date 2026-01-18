@@ -2,117 +2,116 @@ import polars as pl
 import pandas as pd
 import numpy as np
 import os
+import sys
 from datetime import datetime, timedelta
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-PROCESSED_PATH = 'data/processed'
-NADAC_HISTORY_PATH = os.path.join(PROCESSED_PATH, 'nadac_history.parquet')
+# Robust Path Finding (Works from root or src)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, "../.."))
+PROCESSED_PATH = os.path.join(project_root, "data/processed")
+NADAC_HISTORY_PATH = os.path.join(PROCESSED_PATH, "nadac_history.parquet")
 
 
 def get_drug_history(ndc11: str) -> pd.DataFrame:
     """
     Retrieves the full price history for a given drug NDC.
 
-    Args:
-        ndc11 (str): The 11-digit NDC of the drug to look up.
-
-    Returns:
-        pd.DataFrame: A Pandas DataFrame with 'date' and 'price' columns,
-                      sorted by date. Returns an empty DataFrame if the
-                      NDC is not found or an error occurs.
+    CRITICAL: This function forces the NDC column to be a String with 
+    leading zeros (11 digits) to match the input.
     """
     try:
-        history_df = pl.read_parquet(NADAC_HISTORY_PATH)
-        
+        # 1. Check if file exists
+        if not os.path.exists(NADAC_HISTORY_PATH):
+            print(f"⚠️  History file not found at {NADAC_HISTORY_PATH}")
+            return pd.DataFrame(columns=['date', 'price'])
+
+        # 2. Load Data (Lazy mode for speed, then collect)
+        # We only read the columns we need to save memory
+        lf = pl.scan_parquet(NADAC_HISTORY_PATH)
+
+        # 3. defensive_cleaning_pipeline
+        # We assume the DB might have ints, strings, or messy data.
+        # We force it into a standard 11-digit string format.
+        target_ndc = str(ndc11).zfill(11).strip()
+
         drug_history = (
-            history_df
-            .filter(pl.col("ndc11") == ndc11)
-            .select(
+            lf
+            .select(["ndc11", "effective_date", "price_per_unit"])
+            .with_columns([
+                # FORCE NDC to be an 11-char string with leading zeros
+                pl.col("ndc11").cast(pl.Utf8).str.strip_chars().str.zfill(11)
+            ])
+            .filter(pl.col("ndc11") == target_ndc)
+            .select([
                 pl.col("effective_date").alias("date"),
                 pl.col("price_per_unit").alias("price")
-            )
+            ])
             .sort("date")
+            .collect()  # Execute the query
         )
-        
+
+        if drug_history.height == 0:
+            # Uncomment for debugging only
+            # print(f"   ⚠️  NDC {target_ndc} not found in history.")
+            return pd.DataFrame(columns=['date', 'price'])
+
         return drug_history.to_pandas()
-        
+
     except Exception as e:
-        print(f"Error fetching drug history for NDC {ndc11}: {e}")
+        print(f"❌ Error fetching drug history for NDC {ndc11}: {e}")
         return pd.DataFrame(columns=['date', 'price'])
 
 
 def get_mock_forecast(history_df: pd.DataFrame, risk_score: float) -> pd.DataFrame:
     """
-    Generates a simple, mock forecast based on the last known price and a risk score.
-
-    This function simulates a TFT model output for demonstration purposes.
-
-    Args:
-        history_df (pd.DataFrame): The historical price data for a drug.
-        risk_score (float): The predicted risk score (0.0 to 1.0) for the drug.
-
-    Returns:
-        pd.DataFrame: A DataFrame containing the 4-week mock forecast with
-                      'date', 'price', 'lower_bound', and 'upper_bound' columns.
+    Generates a forecast based on risk score.
     """
     if history_df.empty:
         return pd.DataFrame(columns=['date', 'price', 'lower_bound', 'upper_bound'])
 
     last_row = history_df.iloc[-1]
-    last_price = last_row['price']
+    last_price = float(last_row['price'])
     last_date = last_row['date']
 
     # Project the final price based on the risk score
     if risk_score > 0.8:
         # High risk projects a 15% price increase over 4 weeks
         final_price = last_price * 1.15
+    elif risk_score > 0.5:
+        # Medium risk: 5% increase
+        final_price = last_price * 1.05
     else:
-        # Low or moderate risk projects a flat trend line
+        # Low risk: Flat
         final_price = last_price
 
-    # Create the date range and price trend for the next 4 weeks
-    # We create 5 points to get a smooth line from the last known price, then drop the first point.
-    future_dates = pd.to_datetime([last_date + timedelta(weeks=i) for i in range(1, 5)])
-    forecast_prices = np.linspace(start=last_price, stop=final_price, num=5)[1:]
+    # Create the date range (Next 4 weeks)
+    future_dates = [last_date + timedelta(weeks=i) for i in range(1, 5)]
+
+    # Linear interpolation
+    forecast_prices = np.linspace(
+        start=last_price, stop=final_price, num=5)[1:]
 
     forecast_df = pd.DataFrame({
         'date': future_dates,
         'price': forecast_prices
     })
 
-    # Add simple confidence bounds
-    forecast_df['lower_bound'] = forecast_df['price'] * 0.95
-    forecast_df['upper_bound'] = forecast_df['price'] * 1.05
+    # Add Confidence Bounds (The "Tunnel")
+    # Higher risk = Wider uncertainty
+    uncertainty = 0.10 if risk_score > 0.8 else 0.02
+
+    forecast_df['lower_bound'] = forecast_df['price'] * (1 - uncertainty)
+    forecast_df['upper_bound'] = forecast_df['price'] * (1 + uncertainty)
 
     return forecast_df
 
 
 if __name__ == '__main__':
-    # --- Example Usage ---
-    print("--- Running Data Fetcher examples ---")
-    
-    # Example NDC known to be in the dataset
-    example_ndc = "00078013301" 
-    
-    # 1. Fetch history
-    print(f"\n1. Fetching price history for NDC: {example_ndc}...")
-    history = get_drug_history(example_ndc)
-    if not history.empty:
-        print("   ✅ Found history:")
-        print(history.tail())
-    else:
-        print("   ❌ No history found for this NDC.")
-
-    # 2. Generate a mock forecast for a high-risk scenario
-    print("\n2. Generating mock forecast for a HIGH risk scenario (Score > 0.8)...")
-    high_risk_forecast = get_mock_forecast(history, risk_score=0.9)
-    print(high_risk_forecast)
-    
-    # 3. Generate a mock forecast for a low-risk scenario
-    print("\n3. Generating mock forecast for a LOW risk scenario (Score < 0.5)...")
-    low_risk_forecast = get_mock_forecast(history, risk_score=0.3)
-    print(low_risk_forecast)
-
-    print("\n--- Examples finished ---")
+    # Simple self-test
+    print("--- Testing Data Fetcher ---")
+    # Use a dummy NDC that likely doesn't exist just to test the "Empty Return" logic
+    test = get_drug_history("00000000000")
+    print(f"Result empty? {test.empty}")
