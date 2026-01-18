@@ -7,13 +7,17 @@ import pickle
 import xgboost as xgb
 import sys
 
-# PATH FIX
+# ==========================================
+# 🛡️ PATH CORRECTION (GPS Locator)
+# ==========================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "../.."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+# ==========================================
 # CONFIGURATION
+# ==========================================
 REGISTRY_PATH = os.path.join(
     project_root, 'data/outputs/prediction_registry.parquet')
 FEATURES_PATH = os.path.join(
@@ -23,6 +27,9 @@ NADAC_HISTORY_PATH = os.path.join(
 MODEL_PATH = os.path.join(
     project_root, 'src/models/artifacts/spike_predictor_v2.pkl')
 REPORTS_DIR = os.path.join(project_root, 'reports')
+
+os.makedirs(os.path.dirname(REGISTRY_PATH), exist_ok=True)
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 
 def initialize_registry() -> pl.DataFrame:
@@ -53,7 +60,7 @@ def log_new_predictions(registry_df):
     latest_date = features_df["effective_date"].max()
     current_preds = features_df.filter(pl.col("effective_date") == latest_date)
 
-    # Generate scores if missing
+    # 1. Generate scores if missing
     if "risk_score" not in features_df.columns:
         print("   ⚠️ Risk score not found. Generating on the fly...")
         with open(MODEL_PATH, "rb") as f:
@@ -74,19 +81,38 @@ def log_new_predictions(registry_df):
         current_preds = current_preds.with_columns(
             pl.Series("risk_score", scores))
 
-    # --- FIX: CAREFUL COLUMN SELECTION ---
+    # 2. FIX: Join with NADAC History to get 'drug_description'
+    # The features file has 'ingredient' but usually not the full 'drug_description'
+    if "drug_description" not in current_preds.columns:
+        print("   📖 Looking up drug names from NADAC history...")
+        if os.path.exists(NADAC_HISTORY_PATH):
+            names_df = pl.read_parquet(NADAC_HISTORY_PATH).select(
+                ["ndc11", "drug_description"]).unique(subset=["ndc11"])
+            current_preds = current_preds.join(
+                names_df, on="ndc11", how="left")
+
+            # Fill missing names with Ingredient if name lookup failed
+            current_preds = current_preds.with_columns(
+                pl.col("drug_description").fill_null(pl.col("ingredient"))
+            )
+        else:
+            print("   ⚠️ NADAC history not found. Using 'ingredient' as fallback name.")
+            current_preds = current_preds.with_columns(
+                pl.col("ingredient").alias("drug_description")
+            )
+
+    # 3. Select and Format
     new_entries = (
         current_preds
         .filter(pl.col("risk_score") > 0.5)
         .select([
-            pl.col("effective_date").alias("prediction_date"),  # Rename here
+            pl.col("effective_date").alias("prediction_date"),
             pl.col("ndc11"),
             pl.col("drug_description").alias("drug_name"),
             pl.col("price_per_unit").alias("start_price"),
             pl.col("risk_score").alias("predicted_risk_score")
         ])
         .with_columns([
-            # FIX: Use 'prediction_date' (the new name), NOT 'effective_date'
             (pl.col("prediction_date") + timedelta(weeks=4)).alias("target_date"),
             pl.lit("PENDING").alias("status"),
             pl.lit(None).cast(pl.Float64).alias("actual_price"),
@@ -113,7 +139,6 @@ def reconcile_pending(registry_df):
     if not os.path.exists(NADAC_HISTORY_PATH):
         return registry_df
 
-    # Find pending items where target date has passed
     today = datetime.now().date()
     pending = registry_df.filter(
         (pl.col("status") == "PENDING") &
@@ -124,17 +149,11 @@ def reconcile_pending(registry_df):
         print("   ✅ No pending predictions are due for reconciliation.")
         return registry_df
 
-    # Load Truth
-    history = pl.read_parquet(NADAC_HISTORY_PATH).select(
-        ["ndc11", "effective_date", "price_per_unit"]
-    )
-
-    # Simple Loop for safety (bulk join is faster but complex to update in-place)
-    # Since registry is small, this is fine.
-    # In production, use join_asof or left join logic.
     print(f"   Checking {pending.height} records against NADAC...")
+    history = pl.read_parquet(NADAC_HISTORY_PATH).select(
+        ["ndc11", "effective_date", "price_per_unit"])
 
-    # Perform Left Join to get actual prices
+    # Left Join to get actual prices
     annotated = (
         registry_df
         .join(history, left_on=["ndc11", "target_date"], right_on=["ndc11", "effective_date"], how="left")
@@ -158,7 +177,7 @@ def reconcile_pending(registry_df):
             .otherwise(pl.col("status"))
             .alias("status")
         ])
-        .drop("price_per_unit")  # Remove the joined col
+        .drop("price_per_unit")
     )
 
     return annotated
@@ -168,11 +187,6 @@ def generate_accuracy_plot(registry_df):
     resolved = registry_df.filter(pl.col("status") == "RESOLVED")
     if resolved.is_empty():
         return
-
-    # Calculate Accuracy per week
-    # Correct = (Predicted Risk High AND Price Went Up) OR (Predicted Low AND Price Flat/Down)
-    # Since we only log High Risk (>0.5) in the registry,
-    # Accuracy = Did Price go up > 5%?
 
     resolved = resolved.with_columns([
         (pl.col("price_change_pct") > 0.05).alias("is_correct")

@@ -83,7 +83,7 @@ def generate_risk_report():
     report = current_market.with_columns(
         pl.Series(name="risk_score", values=probs))
 
-    # 4. Format Report (RESTORED COLUMNS HERE)
+    # 4. Format Report (RESTORED COLUMNS)
     print("   💄 Formatting for Client...")
     try:
         entity_map = pl.read_parquet(os.path.join(
@@ -103,7 +103,7 @@ def generate_risk_report():
                 pl.col("drug_description").alias("drug_name"),
                 pl.col("manufacturer"),
                 pl.lit("Price Instability").alias("risk_type"),
-                # --- RESTORED COLUMNS ---
+                # --- COLUMNS RESTORED BELOW ---
                 pl.col("price_per_unit").alias("current_price"),
                 pl.col("price_velocity_4w").round(3).alias("momentum"),
                 pl.col("market_hhi").round(2).alias("monopoly_index")
@@ -123,7 +123,7 @@ def generate_risk_report():
             print(
                 f"   📈 Generating forecast plot for: {top_risk['drug_name']}")
 
-            # Fetch Data (Ensure NDC is treated as string for lookup)
+            # Use string cast for NDC lookups to prevent 'missing chart' errors
             history_df = get_drug_history(str(top_risk['ndc11']))
             forecast_df = get_mock_forecast(history_df, top_risk['score'])
 
